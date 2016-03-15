@@ -1,0 +1,18 @@
+#Makefile for Matrix Multiplication
+
+.PHONY: clean
+CC = mpicc
+OBJS = twoBodySlaveMaster.o functions.o 
+
+twoBodySlave: $(OBJS)
+	$(CC) -Wall -o $@ $^
+
+$(OBJS): %.o: %.c
+	$(CC) -c $<
+
+twoBodySlaveMaster.o: functions.h
+
+functions.o:
+
+clean: 
+	rm -rf *.o mast

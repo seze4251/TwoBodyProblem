@@ -1,0 +1,19 @@
+# Makefile for Matrix Multiplication
+
+.PHONY: clean
+CC = mpicc
+OBJS = twoBodyParallelSplit.o functions.o
+
+paraSplit: $(OBJS)
+	$(CC) -Wall -o $@ $^
+
+$(OBJS): %.o: %.c
+	$(CC) -c $<
+
+distParaAsync.o: functions.h
+
+functions.o: functions.h
+
+
+clean: 
+	rm -rf *.o paraSplit
