@@ -6,22 +6,25 @@
 //  Copyright © 2016 Seth. All rights reserved.
 //
 
+// Takes in scanF inputs: Number of Angles, Number of Velocities, Starting Velocity and Clearence Height
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
 #include "functions.h"
 
+// Declare Globals
 const double mM = 7.34767309E22, mE = 5.97219E24, mS = 28833, rM = 1737100, rE = 6371000, G = 6.675E-11;
-const double  thetaS = 50 * M_PI / 180, thetaM = 42.5 * M_PI/180, clear = 10000, xE = 0, yE = 0, vEx = 0, vEy = 0;
-
+const double  thetaS = 50 * M_PI / 180, thetaM = 42.5 * M_PI/180, xE = 0, yE = 0, vEx = 0, vEy = 0;
+double clear;
 
 int main(int argc, char * argv[]) {
     // Initialize MPI
     MPI_Init(&argc, &argv);
     
     //Initialize Base Vars on all processes
-    int nprocs, myrank, tagX = 1, tagY = 2, tagResult = 3, mpi_error;
+    int nprocs, myrank, tagX = 5, tagY = 8, tagResult = 3, mpi_error;
     const int serverRank = 0;
     double starttime, endtime, totaltime;
     
@@ -51,36 +54,50 @@ int main(int argc, char * argv[]) {
     // Read in Data
     double numA, numV, vStart, vMax = 100, angMax = 2 * M_PI;
     double * velX, * velY;
-    int i, count, loopCount;
+    int i, j, count, size, loopCount;
     
     if (myrank == serverRank) {
-        
+        // Read in data
         while (1) {
-            printf("Please enter 3 #'s larger than 0,  #angles, #Velocities and start velocity \n");
-            int check = scanf("%lf %lf %lf",&numA, &numV, &vStart);
-            if (numA > 0 && numV > 0 && vStart > 0) {
+            printf("# Angles, # Velocities, #Velocity Start, #clearence \n");
+            scanf("%lf %lf %lf %lf",&numA, &numV, &vStart, &clear);
+            if (numA > 0 && numV > 0 && vStart > 0 && clear >= 0) {
                 break;
             } else {
                 printf("Please Enter Three Numbers that Are greater than 0 \n");
             }
         }
-        int i, j, count = 0, size;
+        // Progress Tracker
+        printf("Out of Scanloop\n");
+        
+        count = 0;
         size = (int) (numA * numV);
-        double holderX[size], holderY[size], aSS = angMax / numA , vSS = (vMax - vStart) / numV;
+        velX = (double *) malloc(size * sizeof(double));
+        velY = (double *) malloc(size * sizeof(double));
+
+        double aSS = angMax / numA , vSS = (vMax - vStart) / numV;
         
         for (i = 0; i < numV ; i++) {
             for (j = 0; j < numA; j++) {
-                holderX[count] = (vStart + vSS * i) * cos(j * aSS) + vS * cos(thetaS);
-                holderY[count] = (vStart + vSS * i) * sin(j * aSS) + vS * sin(thetaS);
+                velX[count] = (vStart + vSS * (i + 1)) * cos(j * aSS) + vS * cos(thetaS);
+                velY[count] = (vStart + vSS * (i + 1)) * sin(j * aSS) + vS * sin(thetaS);
+               // printf(" velX = %5.5f, velY = %5.5f \n", velX[count], velY[count]); //(vStart + vSS * (i + 1)) * cos(j * aSS), (vStart + vSS * (i + 1)) * sin(j * aSS) );
                 count++;
             }
         }
         
-        velX = holderX;
-        velY = holderY;
+        /* Test Inputs
+        for (i = 0; i < size; i ++) {
+            printf(" velX = %5.5f, velY = %5.5f  i  %d\n", velX[i], velY[i], i);
+        }
+         */
+        
         starttime = MPI_Wtime();
     }
     
+    // Broadcast Clearence
+    MPI_Request req;
+    mpi_error = MPI_Ibcast(& clear, 1, MPI_DOUBLE, serverRank, MPI_COMM_WORLD, & req);
     
     // Determine necissary variables for splitting by # of processes
     int rem, scatterSize;
@@ -91,32 +108,53 @@ int main(int argc, char * argv[]) {
     
     // Sends data
     if (myrank == serverRank) {
-        loopCount = count + rem;
-        rem = (int)(numA * numV) % nprocs;
-        scatterSize = (numA * numV) / nprocs;
-        int count;
+        rem = size % nprocs;
+        scatterSize = size / nprocs;
+        loopCount = scatterSize + rem;
+       // printf("SERVER: scatersize: %d rem: %d  loopCount %d\n", scatterSize, rem, loopCount);
+       /*
+        for (i = 0; i < size ; i++) {
+            printf("SERVER: velX = %5.5f, velY = %5.5f \n", velX[i], velY[i]);
+        } */
+        
         for (i = 1; i < nprocs; i++) {
-            mpi_error = MPI_Isend(velX + rem +scatterSize * (i + 1), scatterSize, MPI_DOUBLE, i, tagX, MPI_COMM_WORLD, (reqX+i));
-            mpi_error = MPI_Isend(velY + rem + scatterSize * (i + 1), scatterSize, MPI_DOUBLE, i, tagY, MPI_COMM_WORLD, (reqY+i));
+            mpi_error = MPI_Isend(velX + rem +scatterSize * i, scatterSize, MPI_DOUBLE, i, tagX, MPI_COMM_WORLD, (reqX+i));
+            mpi_error = MPI_Isend(velY + rem + scatterSize * i , scatterSize, MPI_DOUBLE, i, tagY, MPI_COMM_WORLD, (reqY+i));
         }
     } else {
-        int i;
+        double * data;
+        
         for (i = 0; i < 2; i++) {
             mpi_error = MPI_Probe(serverRank, MPI_ANY_TAG, MPI_COMM_WORLD, & status);
             mpi_error = MPI_Get_count(& status, MPI_DOUBLE, & count);
-            double data [count];
+           // printf("count:%d  tag: %d  tagX = %d,  tagY = %d \n",count, status.MPI_TAG, tagX, tagY);
+            data = (double *) malloc(count * sizeof(double));
+            
             if (status.MPI_TAG == tagX) {
                 MPI_Recv(data, count, MPI_DOUBLE, serverRank, tagX, MPI_COMM_WORLD, & status);
                 velX = data;
-            } else {
+                
+            } else if (status.MPI_TAG == tagY) {
                 MPI_Recv(data, count, MPI_DOUBLE, serverRank, tagY, MPI_COMM_WORLD, & status);
                 velY = data;
             }
         }
+        
         loopCount = count;
     }
     
-    // Perform Calculation
+    // Wait for CLearence
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    /*
+   if (myrank != serverRank) {
+        for (i = 0; i < loopCount; i++) {
+            printf(" velX = %5.5f, velY = %5.5f \n", velX[i], velY[i]);
+        }
+    }
+     */
+     // Perform Calculation
+    printf("loopcount: %d, myrank %d",loopCount, myrank);
+    printf("Begining Calculation: myrank = %d\n",myrank);
     double currentTime, bestTime = 0, topVX, topVY;
     int ret;
     
@@ -124,6 +162,7 @@ int main(int argc, char * argv[]) {
         IC[6] = velX[i];
         IC[7] = velY[i];
         ret = fowardEuler(& currentTime, IC);
+     //  printf("ret: %d, myrank: %d  i = %d\n", ret, myrank, i);
         if (ret == 0) {
             if (bestTime == 0) {
                 bestTime = currentTime;
@@ -136,20 +175,26 @@ int main(int argc, char * argv[]) {
             }
         }
     }
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    printf("Finished Calculation: myrank = %d \n", myrank);
     
     // Wait on server for Everything to have gone through
     if (myrank == serverRank) {
-        MPI_Waitall(nprocs, reqX, MPI_STATUS_IGNORE);
-        MPI_Waitall(nprocs, reqY, MPI_STATUS_IGNORE);
+        MPI_Waitall(nprocs - 1, reqX + 1, MPI_STATUS_IGNORE);
+        MPI_Waitall(nprocs - 1, reqY + 1, MPI_STATUS_IGNORE);
+        printf("Server made it past waitall\n");
     }
     
     
     // Collect Results
     if (myrank == serverRank) {
+        printf("Server Begining to Collect Results \n");
         double data[3];
         for (i = 1; i < nprocs; i++) {
             mpi_error = MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, & status);
             mpi_error = MPI_Recv(data, 3, MPI_DOUBLE, status.MPI_SOURCE, tagResult, MPI_COMM_WORLD, &status);
+            printf("SLAVE: t: %5.3f Vx: %5.3f  Vy: %5.3f \n", data[0], data[1], data[2]);
             if (data[1] < bestTime) {
                 bestTime = data[0];
                 topVX = data[1];
@@ -158,15 +203,37 @@ int main(int argc, char * argv[]) {
         }
         
     } else {
+        printf("Worker Process Begining to send results \n");
         double send [] = {bestTime, topVX, topVY};
         mpi_error =  MPI_Send(send, 3, MPI_DOUBLE, serverRank, tagResult, MPI_COMM_WORLD);
     }
     
-    MPI_Finalize();
+    // Free Data
+    free(velX);
+    free(velY);
+    
+    // Print Results
     if (myrank == serverRank) {
-            printf("Best Time: %5.3f  MagV: %5.3f,  theta: %5.3f degrees", bestTime, sqrt(pow(topVX,2) + pow(topVY,2)), 180 / M_PI *atan2(topVY, topVX));
+      double  x = topVX - vS * cos(thetaS);
+       double y = topVY - vS * sin(thetaS);
+        printf("Best Time: %5.5f, vx %5.5f,  vy %5.5f, magnitude %5.5f theta %5.5f \n", bestTime, x, y, sqrt(pow(x,2) + pow(y,2)), atan2(y,x) * 180/M_PI);
+        
+        endtime = MPI_Wtime();
+        totaltime = endtime - starttime;
+        printf("Total Time = %5.5f\n", totaltime);
+        
+        // Print to File
+        /*FILE * file = fopen("OutputParallel","w");
+         fprintf(file, " %d \t\t %lu /n",m,total_t);
+         fclose(file);
+         */
+        
+        
     }
+    
+    MPI_Finalize();
 
+    
     return 0;
 }
 

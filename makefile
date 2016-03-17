@@ -4,7 +4,7 @@
 CC = gcc
 CFLAGS = -Wall -O3  -c  
 LFLAGS = -Wall -O3  
-OBJS = twoBody.o matrixFix.o
+OBJS = twoBody.o functions.o
 
 twoBody: $(OBJS)
 	$(CC) $(LFLAGS) -o $@ $^
@@ -12,9 +12,8 @@ twoBody: $(OBJS)
 $(OBJS): %.o: %.c
 	$(CC) $(CFLAGS) $<
 
-twoBody.o:
+twoBody.o: functions.h
 
-matrixFix.o: matrixFix.h
-
+functions.o:
 clean:
 	rm -rf *.o matrixmult

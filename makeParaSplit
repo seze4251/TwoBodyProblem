@@ -8,7 +8,7 @@ paraSplit: $(OBJS)
 	$(CC) -Wall -o $@ $^
 
 $(OBJS): %.o: %.c
-	$(CC) -c $<
+	$(CC) -Wall -c $<
 
 distParaAsync.o: functions.h
 

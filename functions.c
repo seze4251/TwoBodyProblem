@@ -41,7 +41,7 @@ int fowardEuler(double * t, double IC []) {
     // Globals (constants): mM, mE, mS, rM, rE, G, thetaS, thetaM, clear, xE, yE, vEx, vEy
     
     // Declare time;
-    double dt = 1; // Second
+    double dt = 3; // Second
     *t = 0;
     
     // Declare Derivatives:
@@ -51,7 +51,8 @@ int fowardEuler(double * t, double IC []) {
     double fSMx, fSMy, fEMx, fEMy, fESx, fESy;
     //  printf("power: %5.5f\n",powf(dMS,3));
     // Start Integration Loop
-    //int i = 1;
+    
+    int i = 1;
     while (1) {
         // If spacecraft is heading home, Increase timestep!
         if (vSx < 0) {
@@ -71,25 +72,25 @@ int fowardEuler(double * t, double IC []) {
         fESx = G * mS * mE * (-xS) / pow(dES,3);
         fESy = G * mS * mE * (-yS) / pow(dES,3);
         
-        /*
-         if (i == 1) {
-         printf("fMSx = %5.5f  fMSy = %5.5f FEMx = %5.5f FEMy = %5.5f  fMSx = %5.5f  fMSx = %5.5f\n",fSMx, fSMy, fEMx, fEMy, fESx, fESy);
+        
+         if (i < 100 && i > 120) {
+         //printf("fMSx = %5.5f  fMSy = %5.5f FEMx = %5.5f FEMy = %5.5f  fMSx = %5.5f  fMSx = %5.5f\n",fSMx, fSMy, fEMx, fEMy, fESx, fESy);
          
          }
          
-         */
+         
         // Find acelerations
         aSx = (fSMx + fESx)/mS;
         aSy = (fSMy + fESx)/mS;
         aMx = (fEMx - fSMx)/mM;
         aMy = (fEMy - fSMy)/mM;
-        /*
+        
          if (i == 1) {
-         printf("aSx = %5.5f  aSy = %5.5f aMx = %5.5f aMy = %5.5f\n",aSx, aSy, aMx, aMy);
+         //printf("aSx = %5.5f  aSy = %5.5f aMx = %5.5f aMy = %5.5f\n",aSx, aSy, aMx, aMy);
          
          }
          i += 1;
-         */
+         
         // New Velocities with Foward Euler
         vSx = vSx + dt * aSx;
         vSy = vSy + dt * aSy;
