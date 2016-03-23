@@ -74,24 +74,16 @@ int main(int argc, char * argv[]) {
         size = (int) (numA * numV);
         velX = (double *) malloc(size * sizeof(double));
         velY = (double *) malloc(size * sizeof(double));
-
+        
         double aSS = angMax / numA , vSS = (vMax - vStart) / numV;
         
         for (i = 0; i < numV ; i++) {
             for (j = 0; j < numA; j++) {
                 velX[count] = (vStart + vSS * (i + 1)) * cos(j * aSS) + vS * cos(thetaS);
                 velY[count] = (vStart + vSS * (i + 1)) * sin(j * aSS) + vS * sin(thetaS);
-               // printf(" velX = %5.5f, velY = %5.5f \n", velX[count], velY[count]); //(vStart + vSS * (i + 1)) * cos(j * aSS), (vStart + vSS * (i + 1)) * sin(j * aSS) );
                 count++;
             }
         }
-        
-        /* Test Inputs
-        for (i = 0; i < size; i ++) {
-            printf(" velX = %5.5f, velY = %5.5f  i  %d\n", velX[i], velY[i], i);
-        }
-         */
-        
         starttime = MPI_Wtime();
     }
     
@@ -111,12 +103,7 @@ int main(int argc, char * argv[]) {
         rem = size % nprocs;
         scatterSize = size / nprocs;
         loopCount = scatterSize + rem;
-       // printf("SERVER: scatersize: %d rem: %d  loopCount %d\n", scatterSize, rem, loopCount);
-       /*
-        for (i = 0; i < size ; i++) {
-            printf("SERVER: velX = %5.5f, velY = %5.5f \n", velX[i], velY[i]);
-        } */
-        
+    
         for (i = 1; i < nprocs; i++) {
             mpi_error = MPI_Isend(velX + rem +scatterSize * i, scatterSize, MPI_DOUBLE, i, tagX, MPI_COMM_WORLD, (reqX+i));
             mpi_error = MPI_Isend(velY + rem + scatterSize * i , scatterSize, MPI_DOUBLE, i, tagY, MPI_COMM_WORLD, (reqY+i));
@@ -127,7 +114,7 @@ int main(int argc, char * argv[]) {
         for (i = 0; i < 2; i++) {
             mpi_error = MPI_Probe(serverRank, MPI_ANY_TAG, MPI_COMM_WORLD, & status);
             mpi_error = MPI_Get_count(& status, MPI_DOUBLE, & count);
-           // printf("count:%d  tag: %d  tagX = %d,  tagY = %d \n",count, status.MPI_TAG, tagX, tagY);
+            
             data = (double *) malloc(count * sizeof(double));
             
             if (status.MPI_TAG == tagX) {
@@ -145,14 +132,8 @@ int main(int argc, char * argv[]) {
     
     // Wait for CLearence
     MPI_Wait(&req, MPI_STATUS_IGNORE);
-    /*
-   if (myrank != serverRank) {
-        for (i = 0; i < loopCount; i++) {
-            printf(" velX = %5.5f, velY = %5.5f \n", velX[i], velY[i]);
-        }
-    }
-     */
-     // Perform Calculation
+
+    // Perform Calculation
     printf("loopcount: %d, myrank %d",loopCount, myrank);
     printf("Begining Calculation: myrank = %d\n",myrank);
     double currentTime, bestTime = 0, topVX, topVY;
@@ -162,7 +143,7 @@ int main(int argc, char * argv[]) {
         IC[6] = velX[i];
         IC[7] = velY[i];
         ret = fowardEuler(& currentTime, IC);
-     //  printf("ret: %d, myrank: %d  i = %d\n", ret, myrank, i);
+        //  printf("ret: %d, myrank: %d  i = %d\n", ret, myrank, i);
         if (ret == 0) {
             if (bestTime == 0) {
                 bestTime = currentTime;
@@ -175,7 +156,6 @@ int main(int argc, char * argv[]) {
             }
         }
     }
-    MPI_Barrier(MPI_COMM_WORLD);
     
     printf("Finished Calculation: myrank = %d \n", myrank);
     
@@ -214,8 +194,8 @@ int main(int argc, char * argv[]) {
     
     // Print Results
     if (myrank == serverRank) {
-      double  x = topVX - vS * cos(thetaS);
-       double y = topVY - vS * sin(thetaS);
+        double  x = topVX - vS * cos(thetaS);
+        double y = topVY - vS * sin(thetaS);
         printf("Best Time: %5.5f, vx %5.5f,  vy %5.5f, magnitude %5.5f theta %5.5f \n", bestTime, x, y, sqrt(pow(x,2) + pow(y,2)), atan2(y,x) * 180/M_PI);
         
         endtime = MPI_Wtime();
@@ -223,16 +203,16 @@ int main(int argc, char * argv[]) {
         printf("Total Time = %5.5f\n", totaltime);
         
         // Print to File
-        /*FILE * file = fopen("OutputParallel","w");
-         fprintf(file, " %d \t\t %lu /n",m,total_t);
+        FILE * file = fopen("distParalellSpeed.txt","a");
+         fprintf(file, " %d \t\t %f \t\t %d \n",nprocs,totaltime, size);
          fclose(file);
-         */
+         
         
         
     }
     
     MPI_Finalize();
-
+    
     
     return 0;
 }

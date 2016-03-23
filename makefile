@@ -2,8 +2,8 @@
 
 .PHONY: clean
 CC = gcc
-CFLAGS = -Wall -O3  -c  
-LFLAGS = -Wall -O3  
+CFLAGS = -Wall -c  
+LFLAGS = -Wall   
 OBJS = twoBody.o functions.o
 
 twoBody: $(OBJS)

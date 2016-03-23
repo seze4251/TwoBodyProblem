@@ -8,7 +8,7 @@ twoBodySlave: $(OBJS)
 	$(CC) -Wall -o $@ $^
 
 $(OBJS): %.o: %.c
-	$(CC) -c $<
+	$(CC) -c -Wall $<
 
 twoBodySlaveMaster.o: functions.h
 

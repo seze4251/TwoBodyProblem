@@ -9,9 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <mpi.h>
-//#include <unistd.h>
 #include <math.h>
 #include "functions.h"
+
 // Master Logic
 void handleMasterInit(double * velX, double * velY, int * trash, int place [][2], int load, int tagX, int tagY, MPI_Status status, MPI_Request req []);
 void handleMasterBody(double * bestTime, double * topVX, double * topVY, double * transfer, int place[][2], MPI_Status status);
@@ -23,9 +23,9 @@ void handleMasterFinishLong(double * bestTime, double * topVX, double * topVY, d
 void finish(int trash [], int tagFinilize, int nprocs, MPI_Request req []);
 
 // Slave Logic
-int handleSlaveInit (double ** velX, double ** velY, double ** velXtwo, double ** velYtwo, int * slaveCount, int * trash, int serverRank, int tagInit, int tagX, int tagY, int tagFinilize, int myrank, MPI_Status status);
-void handleSlaveBody(double * IC, double * velX, double * velY, double * velXtwo, double * velYtwo, double * currentTime, double * bestTime, double * topVX, double * topVY, int * slaveCount, int serverRank, int tagX, int tagY, int tagResult, int tagFinilize, int tagMoreData, int myrank);
-void handleServerFinish(double starttime, double endtime, double totaltime);
+int handleSlaveInit (int * slaveCount, double ** velX, double ** velY, double ** velXtwo, double ** velYtwo, int * trash, int serverRank, int tagInit, int tagX, int tagY, int tagFinilize, int myrank, MPI_Status status);
+void handleSlaveBody(int * slaveCount, double * IC, double * velX, double * velY, double * velXtwo, double * velYtwo, double * currentTime, double * bestTime, double * topVX, double * topVY, int serverRank, int tagX, int tagY, int tagResult, int tagFinilize, int tagMoreData, int myrank);
+void handleServerFinish(double starttime, double endtime, double totaltime, double * bestTime, double * topVX, double * topVY, double * vS, int nprocs, int load, int size);
 
 // Private Functions
 int * setPlace( int place[][2], int status);
@@ -34,7 +34,8 @@ void printPlace(int place[][2], int nprocs);
 
 // Globals
 const double mM = 7.34767309E22, mE = 5.97219E24, mS = 28833, rM = 1737100, rE = 6371000, G = 6.675E-11;
-const double  thetaS = 50 * M_PI / 180, thetaM = 42.5 * M_PI/180, clear = 10000, xE = 0, yE = 0, vEx = 0, vEy = 0;
+const double  thetaS = 50 * M_PI / 180, thetaM = 42.5 * M_PI/180, xE = 0, yE = 0, vEx = 0, vEy = 0;
+double clear;
 
 int main(int argc, char * argv[]) {
     // Initialize MPI
@@ -43,7 +44,7 @@ int main(int argc, char * argv[]) {
     //Initialize Base Vars on all processes
     int nprocs, myrank, mpi_error;
     const int serverRank = 0;
-    double starttime, endtime, totaltime;
+    double starttime = 0, endtime = 0, totaltime = 0;
     
     // Determine # of procs and my rank
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -69,50 +70,58 @@ int main(int argc, char * argv[]) {
     
     // Read in Data
     double numA, numV, vStart, vMax = 100, angMax = 2 * M_PI;
-    double * velX, * velY, * velXtwo, * velYtwo;
-    int i, count, load, size = (int) numA * numV;
+    double * velX = NULL, * velY = NULL;
+    int i, j, count, load, size;
     
     if (myrank == serverRank) {
-        
+        // Read in data
         while (1) {
-            printf("Please enter 4 #'s larger than 0,  #angles, #Velocities and start velocity and load size \n");
-            int check = scanf("%lf %lf %lf %d",&numA, &numV, &vStart, & load);
-            if (numA > 0 && numV > 0 && vStart > 0) {
+        //    printf(" #Load Distribution # Angles, # Velocities, #Velocity Start, #clearence \n");
+            scanf("%d %lf %lf %lf %lf", &load, &numA, &numV, &vStart, &clear);
+            if (numA > 0 && numV > 0 && vStart > 0 && clear >= 0 && load > 1) {
                 break;
             } else {
                 printf("Please Enter Three Numbers that Are greater than 0 \n");
             }
         }
-        int i, j, count = 0, size;
+        // Progress Tracker
+      //  printf("Out of Scanloop\n");
+        
+        count = 0;
         size = (int) (numA * numV);
-        double holderX[size], holderY[size], aSS = angMax / numA , vSS = (vMax - vStart) / numV;
+        velX = (double *) malloc(size * sizeof(double));
+        velY = (double *) malloc(size * sizeof(double));
+        
+        double aSS = angMax / numA , vSS = (vMax - vStart) / numV;
         
         for (i = 0; i < numV ; i++) {
             for (j = 0; j < numA; j++) {
-                holderX[count] = (vStart + vSS * i) * cos(j * aSS) + vS * cos(thetaS);
-                holderY[count] = (vStart + vSS * i) * sin(j * aSS) + vS * sin(thetaS);
+                velX[count] = (vStart + vSS * (i + 1)) * cos(j * aSS) + vS * cos(thetaS);
+                velY[count] = (vStart + vSS * (i + 1)) * sin(j * aSS) + vS * sin(thetaS);
                 count++;
             }
         }
-        
-        velX = holderX;
-        velY = holderY;
         starttime = MPI_Wtime();
     }
+    
     
     // Status and Request Variables
     MPI_Status status;
     MPI_Request req [nprocs];
     
+    // Broadcast Clearence
+    mpi_error = MPI_Ibcast(& clear, 1, MPI_DOUBLE, serverRank, MPI_COMM_WORLD, req);
+    
     // Slave Master Variables
-    int * slaveCount;
     int flag,  tagX = 7, tagY = 8, tagResult =9, tagInit = 3, tagMoreData = 4, tagFinilize = 5;
-    int place [nprocs][2], trash [1];
-    trash[0] = -1;
+    int place [nprocs][2], trash[] = {-1};
+    
+    // Slave Specific Variables
+    double * velXtwo = NULL, * velYtwo = NULL;
     
     //  Init Place
     if (myrank == serverRank) {
-        int j;
+      //  printf("tagX = 7, tagY = 8, tagResult =9, tagInit = 3, tagMoreData = 4, tagFinilize = 5\n");
         for (j = 0; j < 2; j++) {
             for (i = 0; i < nprocs; i++) {
                 if (i == 0 && j == 0) {
@@ -126,25 +135,31 @@ int main(int argc, char * argv[]) {
     
     // Declare Variables Needed for Parallel Optimization
     double currentTime, bestTime = 0, topVX, topVY, transfer[3];
-    i = 0;
+    
     // Main Loop
+    i = 0;
+    //printf("Entering Main loop rank: %d \n",myrank);
     while (1) {
         if (myrank == serverRank) {
             // Master
             if (place[0][0] != size) {
                 MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, & flag, & status);
+                //   printf("Master: flag: %d  Tag: %d  From: %d\n", flag, status.MPI_TAG, status.MPI_SOURCE);
                 
                 if (flag == 1) {
                     if (status.MPI_TAG == tagInit ) {
                         // Master Handle Initialize Request
+                       // printf("Master: Enter Init\n");
                         handleMasterInit(velX, velY, trash, place, load, tagX, tagY, status, req);
                         
                     } else if ( status.MPI_TAG == tagResult ) {
                         // Master Data Recive Request
+                     //   printf("Master: Enter Data Recive\n");
                         handleMasterBody(& bestTime, & topVX, &topVY, transfer, place, status);
                         
                     } else if(status.MPI_TAG == tagMoreData) {
                         // Master Handle Request for more data
+                       // printf("MASTER: Enter Request More Data \n");
                         handleMasterRequestMore(velX, velY, size, trash, place, load, tagX, tagY, status, req);
                         
                     } else {
@@ -154,12 +169,13 @@ int main(int argc, char * argv[]) {
                     
                 } else if( flag == 0) {
                     // Master Compute
-                    handleMasterCompute(IC, velX, velY, & currentTime, & bestTime, & topVX, & topVY, place);
+                      //printf("MASTER: Enter Compute\n");
+                      handleMasterCompute(IC, velX, velY, & currentTime, & bestTime, & topVX, & topVY, place);
                 }
                 
             } else {
                 // Master Finish
-                printf("MASTER: Start FINISH Section\n");
+              //  printf("MASTER: Start FINISH Section\n");
                 int hasData = 0, j;
                 
                 for (i = 1; i < nprocs; i++) {
@@ -172,39 +188,44 @@ int main(int argc, char * argv[]) {
                 
                 if (!hasData) {
                     // Case 1: Master did all the work (small matrix)
+                 //   printf("MASTER: FINISH SHORT\n");
                     handleMasterFinishShort(trash, tagFinilize, nprocs, req);
                     break;
                 } else {
                     // Case 2: Others Have data
+                   // printf("MASTER: FINISH LONG\n");
                     handleMasterFinishLong(& bestTime, & topVX, & topVY, transfer, nprocs, trash, place, hasData, tagResult, tagFinilize, status, req);
                     break;
                 }
             }
         } else {
             // All Slaves
+            int slaveCount;
             if (i == 0) {
                 //Initialize Slave
                 i = 1;
-                int checkExit = handleSlaveInit(& velX, & velY, & velXtwo, & velYtwo, slaveCount, trash, serverRank, tagInit, tagX, tagY, tagFinilize, myrank, status);
+               // printf("Slave: %d enter Init\n", myrank);
+                int checkExit = handleSlaveInit(& slaveCount, & velX, & velY, & velXtwo, & velYtwo, trash, serverRank, tagInit, tagX, tagY, tagFinilize, myrank, status);
                 if (checkExit) {
                     break;
                 }
             }
+           // printf("Slave: %d waiting on Clearance\n",myrank);
+            MPI_Wait(req, MPI_STATUS_IGNORE); // Wait on Clearence
+           // printf("Slave: %d has Clearence of %f -> Entering Body Slave Loop\n",myrank, clear);
             
-            handleSlaveBody(IC, velX, velY, velXtwo, velYtwo, & currentTime, & bestTime, & topVX, & topVY, slaveCount, serverRank, tagX, tagY, tagResult, tagFinilize, tagMoreData, myrank);
+            handleSlaveBody(& slaveCount, IC, velX, velY, velXtwo, velYtwo, & currentTime, & bestTime, & topVX, & topVY, serverRank, tagX, tagY, tagResult, tagFinilize, tagMoreData, myrank);
             break;
         }
     }
     
-    printf("I rank %d made it out of the infinite loop\n", myrank);
+   // printf("I rank %d made it out of the infinite loop\n", myrank);
     if (myrank == serverRank) {
-        handleServerFinish(starttime, endtime, totaltime);
+        handleServerFinish(starttime, endtime, totaltime, & bestTime, & topVX, & topVY, & vS, nprocs, load, size);
+        
     }
     
     MPI_Finalize();
-    if (myrank == serverRank) {
-        printf("Best Time: %5.3f  MagV: %5.3f,  theta: %5.3f degrees", bestTime, sqrt(pow(topVX,2) + pow(topVY,2)), 180 / M_PI *atan2(topVY, topVX));
-    }
     return 0;
 }
 
@@ -216,7 +237,7 @@ int main(int argc, char * argv[]) {
 
 void handleMasterInit(double * velX, double * velY, int * trash, int place [][2], int load, int tagX, int tagY, MPI_Status status, MPI_Request req []) {
     int mpi_error;
-    printf("SERVER: Initilize Message from Process %d \n",status.MPI_SOURCE);
+   // printf("SERVER: Initilize Message from Process %d \n",status.MPI_SOURCE);
     mpi_error = MPI_Irecv(trash, 1, MPI_INT, status.MPI_SOURCE, status.MPI_TAG, MPI_COMM_WORLD, req);
     mpi_error = MPI_Isend(velX + place[0][0], load, MPI_DOUBLE, status.MPI_SOURCE, tagX, MPI_COMM_WORLD, req);
     mpi_error = MPI_Isend(velY + place[0][0], load, MPI_DOUBLE, status.MPI_SOURCE, tagY, MPI_COMM_WORLD, req);
@@ -229,7 +250,7 @@ void handleMasterInit(double * velX, double * velY, int * trash, int place [][2]
 // Returns a pointer to the Lowest NON -1 entry of place
 // If both are 0, print an error
 int * findPlace(int place[][2], int status) {
-    int * holder;
+    int * holder = NULL;
     if (place[status][0] != -1 && place[status][0] < place[status][1]) {
         holder = & place[status][0];
     } else if( place[status][1] != -1 && place[status][0] > place[status][1]) {
@@ -247,8 +268,12 @@ void handleMasterBody(double * bestTime, double * topVX, double * topVY, double 
     
     // Blocking Recv
     mpi_error = MPI_Recv(transfer, 3, MPI_DOUBLE, status.MPI_SOURCE, status.MPI_TAG, MPI_COMM_WORLD, & status);
-    
-    if (transfer [0] < * bestTime && transfer[0] > 0) {
+   // printf("MASTER: RECV-- BestTime %f   TopVX  %f  TopVY %f\n",transfer[0], transfer[1], transfer[2]);
+    if (*bestTime == 0) {
+        * bestTime = transfer[0];
+        * topVX = transfer[1];
+        * topVY = transfer[2];
+    } else if (transfer [0] < * bestTime && transfer[0] > 0) {
         * bestTime = transfer[0];
         * topVX = transfer[1];
         * topVY = transfer[2];
@@ -259,7 +284,7 @@ void handleMasterBody(double * bestTime, double * topVX, double * topVY, double 
 
 // Return either place with a 0 or the lowest place
 int * setPlace( int place[][2], int status) {
-    int * holder;
+    int * holder = NULL;
     
     if (place[status][0] < place[status][1]) {
         holder = & place[status][0];
@@ -296,15 +321,18 @@ void handleMasterRequestMore(double * velX, double * velY, int size, int trash[]
 }
 
 void handleMasterCompute(double * IC, double * velX, double * velY, double * currentTime, double * bestTime, double * topVX, double * topVY, int place[][2]) {
+    
     IC[6] = velX[place[0][0]];
     IC[7] = velY[place[0][0]];
     int ret = fowardEuler(currentTime, IC);
+    
     if (ret == 0) {
-        if (bestTime == 0) {
+       // printf("MASTER COMPUTE ret = 0, currentT = %f, topVX %f\n", *currentTime, velX[place[0][0]]);
+        if (*bestTime == 0) {
             * bestTime = * currentTime;
             * topVX = velX[place[0][0]];
             * topVY = velY[place[0][0]];
-        } else if (currentTime < bestTime) {
+        } else if (* currentTime < * bestTime && * currentTime > 0) {
             * bestTime = * currentTime;
             * topVX = velX[place[0][0]];
             * topVY = velY[place[0][0]];
@@ -323,12 +351,12 @@ void finish(int trash [], int tagFinilize, int nprocs, MPI_Request req []) {
     
     // Wait for all messages to go through to avoid seg fault
     MPI_Waitall(nprocs -1, req + 1, MPI_STATUS_IGNORE);
-    printf("SERVER: Completed Finish Function\n");
+ //   printf("SERVER: Completed Finish Function\n");
 }
 
 void handleMasterFinishShort(int trash [], int tagFinilize, int nprocs, MPI_Request req []) {
     finish(trash, tagFinilize, nprocs, req);
-    printf("SERVER: Finish Short\n");
+   // printf("SERVER: Finish Short\n");
 }
 
 //Cases: Slaves have 1 data or 2 sets of data
@@ -353,13 +381,15 @@ void handleMasterFinishLong(double * bestTime, double * topVX, double * topVY, d
 }
 
 
-int handleSlaveInit(double ** velX, double ** velY, double ** velXtwo, double ** velYtwo, int * slaveCount, int * trash, int serverRank, int tagInit, int tagX, int tagY, int tagFinilize, int myrank, MPI_Status status) {
-    printf("SLAVE: %d Send Initialize\n",myrank);
+int handleSlaveInit(int * slaveCount, double ** velX, double ** velY, double ** velXtwo, double ** velYtwo, int * trash, int serverRank, int tagInit, int tagX, int tagY, int tagFinilize, int myrank, MPI_Status status) {
+    //printf("SLAVE: %d \n",myrank);
     
     // Blocking Send
     int mpi_error = MPI_Send(trash, 1, MPI_INT, serverRank, tagInit, MPI_COMM_WORLD);
     
     MPI_Probe(serverRank, MPI_ANY_TAG, MPI_COMM_WORLD, & status);
+    
+    //printf("SLAVE: %d Finished Probe tag: %d \n",myrank, status.MPI_TAG);
     
     if (status.MPI_TAG == tagX || status.MPI_TAG == tagY) {
         mpi_error = MPI_Get_count(&status, MPI_DOUBLE, slaveCount);
@@ -380,145 +410,142 @@ int handleSlaveInit(double ** velX, double ** velY, double ** velXtwo, double **
 }
 
 
-void handleSlaveBody(double * IC, double * velX, double * velY, double * velXtwo, double * velYtwo, double * currentTime, double * bestTime, double * topVX, double * topVY, int * slaveCount, int serverRank, int tagX, int tagY, int tagResult, int tagFinilize, int tagMoreData, int myrank) {
+void handleSlaveBody(int * slaveCount, double * IC, double * velX, double * velY, double * velXtwo, double * velYtwo, double * currentTime, double * bestTime, double * topVX, double * topVY, int serverRank, int tagX, int tagY, int tagResult, int tagFinilize, int tagMoreData, int myrank) {
     
     MPI_Request req[4];
-    MPI_Status status [2];
-    
-    int calc, rem, err, count, mpi_error, i = 0, flagX = 0, flagY = 0, j, ret;
-    int trash[1];
-    trash[0] = -1;
-    double transfer [3];
-    double * holder;
+    MPI_Status status[1];
+    int calc, rem, mpi_error, i = 0, j = 0, flag = 0, ret, trash[] = {-1};
+    double transfer [3], * holder;
     
     // Need to start loop with mtxA_one being full and mtxC_one initialized to 0
-    printf("SLAVE: %d entering main body loop\n",myrank);
+    // j is loop counter
+    
     while (1) {
+        // Debug Stuff
+        //  printf("SLAVE: %d Top of Loop j = %d\n",myrank, j);
+        for (i = 0; i < *slaveCount; i++) {
+            //    printf("Vx: %5.5f  Vy: %5.5f\n", velX[i], velY[i]);
+        }
+        
         // Determine sizes of data
-        calc = * slaveCount / 2;
-        rem = * slaveCount % 2;
+        calc = *slaveCount / 2;
+        rem = *slaveCount % 2;
         
         // Ask For More Data
-        mpi_error = MPI_Isend(trash, 1, MPI_INT, serverRank, tagMoreData, MPI_COMM_WORLD, req);
+        mpi_error = MPI_Isend(trash, 1, MPI_INT, serverRank, tagMoreData, MPI_COMM_WORLD, req);  // Ask for more data req
         
         // Reset BestTime
         * bestTime = 0;
         
-        // Wait for data to send if
-        if (i != 0) {
-            MPI_Wait(req + 1, MPI_STATUS_IGNORE);
-            MPI_Wait(req + 2, MPI_STATUS_IGNORE);
-        }
         // Compute First Data
-        for (j = 0; j < calc; j++) {
-            IC[6] = velX[j];
-            IC[7] = velY[j];
-            ret = fowardEuler(currentTime, IC);
-            if (ret == 0) {
-                if (* bestTime == 0) {
-                    * bestTime = * currentTime;
-                    * topVX = velX[j];
-                    * topVY = velY[j];
-                } else if (* currentTime < *bestTime) {
-                    * bestTime = * currentTime;
-                    * topVX = velX[j];
-                    * topVY = velY[j];
-                }
-            }
-        }
-        
-        // Attempt Recv
-        MPI_Iprobe(serverRank, tagX, MPI_COMM_WORLD, & flagX, status);
-        
-        if (flagX == 1) {
-            mpi_error = MPI_Get_count( status, MPI_DOUBLE, slaveCount);
-            mpi_error = MPI_Irecv(velXtwo, count, MPI_DOUBLE, serverRank, tagX, MPI_COMM_WORLD, req + 1); // req + 1
-            
-        }
-        
-        MPI_Iprobe(serverRank, tagY, MPI_COMM_WORLD, & flagY, status + 1);
-        
-        if (flagY == 1) {
-            mpi_error = MPI_Get_count( status, MPI_DOUBLE, slaveCount);
-            mpi_error = MPI_Irecv(velYtwo, count, MPI_DOUBLE, serverRank, tagY, MPI_COMM_WORLD, req + 2); // req + 2
-            
-        }
-        
-        // Calculate Rest of Data
-        for (j = calc; j < 2 * calc + rem; j++) {
+        for (i = 0; i < calc; i++) {
             IC[6] = velX[i];
             IC[7] = velY[i];
             ret = fowardEuler(currentTime, IC);
             if (ret == 0) {
                 if (* bestTime == 0) {
                     * bestTime = * currentTime;
-                    * topVX = velX[j];
-                    * topVY = velY[j];
+                    * topVX = velX[i];
+                    * topVY = velY[i];
                 } else if (* currentTime < *bestTime) {
                     * bestTime = * currentTime;
-                    * topVX = velX[j];
-                    * topVY = velY[j];
+                    * topVX = velX[i];
+                    * topVY = velY[i];
                 }
             }
         }
         
-        // Wait for previous send mtxC request to go through
-        if (i != 0) {
-            MPI_Wait(req+3, MPI_STATUS_IGNORE);
+        // printf("Slave %d: Completed first compute j = %d\n",myrank, j);
+        // Attempt to Recieve Information
+        MPI_Iprobe(serverRank, tagX, MPI_COMM_WORLD, & flag, status);
+        
+        if (flag == 1) {
+            //    printf("SLAVE: Recv X Short\n");
+            mpi_error = MPI_Get_count( status, MPI_DOUBLE, slaveCount);
+            mpi_error = MPI_Irecv(velXtwo, * slaveCount, MPI_DOUBLE, serverRank, tagX, MPI_COMM_WORLD, req + 1); // req + 1 Recv VelX
+            mpi_error = MPI_Irecv(velYtwo, * slaveCount, MPI_DOUBLE, serverRank, tagY, MPI_COMM_WORLD, req + 2); // req + 2 Recv VelY
+            
         }
         
+        
+        // Calculate Rest of Data
+        for (i = calc; i < 2 * calc + rem; i++) {
+            IC[6] = velX[i];
+            IC[7] = velY[i];
+            ret = fowardEuler(currentTime, IC);
+            if (ret == 0) {
+                if (* bestTime == 0) {
+                    * bestTime = * currentTime;
+                    * topVX = velX[i];
+                    * topVY = velY[i];
+                } else if (* currentTime < *bestTime) {
+                    * bestTime = * currentTime;
+                    * topVX = velX[i];
+                    * topVY = velY[i];
+                }
+            }
+        }
+        
+        //printf("Slave %d: Completed Second Compute j = %d\n",myrank, j);
+        
+        
+        // Wait for previous send mtxC request to go through
+        if (j != 0) {
+            MPI_Wait(req+3, MPI_STATUS_IGNORE);
+        }
+        //   printf("Slave %d: Completed req + 3 Wait j = %d\n",myrank, j);
         
         // Set Up Result
         transfer[0] = *bestTime;
         transfer[1] = *topVX;
         transfer[2] = *topVY;
         
-        // Send mtxC_two
+        
+        // Send Answer Back
         mpi_error = MPI_Isend(transfer, 3, MPI_DOUBLE, serverRank, tagResult, MPI_COMM_WORLD, req + 3); // req + 3
         
         MPI_Wait(req, MPI_STATUS_IGNORE); // Wait for the more data request to be received
         
         // Finish Recive or block Recv
-        if (flagY == 1 && flagX == 1 ) {
+        if (flag == 1) {
             // Finish Recv
+            // printf("Short Recv\n");
             MPI_Wait(req + 1, MPI_STATUS_IGNORE);
             MPI_Wait(req + 2, MPI_STATUS_IGNORE);
-            
-        } else if (flagY == 1 && flagX == 0) {
-            MPI_Wait(req + 2, MPI_STATUS_IGNORE);
-            
-        } else if (flagY == 0 && flagX == 1) {
-            MPI_Wait(req + 1, MPI_STATUS_IGNORE);
             
         } else {
+            //printf("Long Recv\n");
             //Blocking Probe -- Need not to touch (status + 0)
             MPI_Probe(serverRank, MPI_ANY_TAG, MPI_COMM_WORLD, status);
             
-            if (status[0].MPI_TAG == tagMoreData) {
+            if (status[0].MPI_TAG == tagX || status[0].MPI_TAG == tagY) {
+                //  printf("BAD BAD Here\n");
                 mpi_error = MPI_Get_count(status, MPI_DOUBLE, slaveCount);
                 // Blocking Recv
-                
-                mpi_error = MPI_Irecv(velXtwo, *slaveCount, MPI_DOUBLE, serverRank, tagX, MPI_COMM_WORLD, req + 1);
-                mpi_error = MPI_Irecv(velYtwo, *slaveCount, MPI_DOUBLE, serverRank, tagY, MPI_COMM_WORLD, req + 2);
+                mpi_error = MPI_Recv(velXtwo, * slaveCount, MPI_DOUBLE, serverRank, tagX, MPI_COMM_WORLD, status);
+                mpi_error = MPI_Recv(velYtwo, * slaveCount, MPI_DOUBLE, serverRank, tagY, MPI_COMM_WORLD, status);
+                //printf("SLAVE: %d Long Recv!!!!!!! j = %d\n",myrank, j);
+                for (i = 0; i < *slaveCount; i++) {
+                    //  printf("Vx: %5.5f  Vy: %5.5f\n", velXtwo[i], velYtwo[i]);
+                }
                 
             } else if(status[0].MPI_TAG == tagFinilize) {
-                //Finishing Cases for slaves:
-                // Normal - have a finishing message with no A waiting
-                // Bad - Have a finishing message + have mtxA data waiting
+                //printf("Slave: Recv Tag Finialize\n");
                 
-                MPI_Wait(req + 2, MPI_STATUS_IGNORE); //
-                MPI_Iprobe(serverRank, tagX, MPI_COMM_WORLD, & flagX, status + 1);
+                MPI_Wait(req + 3, MPI_STATUS_IGNORE); //
+                MPI_Iprobe(serverRank, tagX, MPI_COMM_WORLD, & flag, status + 1);
                 
-                if (flagX == 1) {
+                if (flag == 1) {
                     // Case not supported
                     printf("Unsupported Cased occured Slave myrank: %d\n", myrank);
                 }
-                printf("SLAVE: %d About to enter Final Recv\n",myrank);
+                //  printf("SLAVE: %d About to enter Final Recv\n",myrank);
                 mpi_error = MPI_Recv(trash, 1, MPI_INT, serverRank, tagFinilize, MPI_COMM_WORLD, status);
                 break;
             }
         }
         
+        //    printf("Slave %d: Completed Recv i = %d\n",myrank, i);
         //Switch Pointers
         holder = velY;
         velY = velYtwo;
@@ -527,8 +554,9 @@ void handleSlaveBody(double * IC, double * velX, double * velY, double * velXtwo
         holder = velX;
         velX = velXtwo;
         velXtwo = holder;
-        i++;
+        j++;
     }
+    
     free(velX);
     free(velY);
     free(velXtwo);
@@ -536,17 +564,18 @@ void handleSlaveBody(double * IC, double * velX, double * velY, double * velXtwo
 }
 
 
-void handleServerFinish(double starttime, double endtime, double totaltime) {
+void handleServerFinish(double starttime, double endtime, double totaltime, double * bestTime, double * topVX, double * topVY, double * vS, int nprocs, int load, int size) {
     //Time
+    double  x = * topVX - *vS * cos(thetaS);
+    double y = * topVY - *vS * sin(thetaS);
+    printf("Best Time: %5.5f, vx %5.5f,  vy %5.5f, magnitude %5.5f theta %5.5f \n", * bestTime, x, y, sqrt(pow(x,2) + pow(y,2)), atan2(y,x) * 180/M_PI);
     endtime = MPI_Wtime();
     totaltime = endtime - starttime;
     printf("Total Running Time: %5.3f\n",totaltime);
-    
     // Print to File
-    /*FILE * file = fopen("OutputParallel","w");
-     fprintf(file, " %d \t\t %lu /n",m,total_t);
+     FILE * file = fopen("slaveSpeed.txt","a");
+     fprintf(file, " %d \t\t %f  \t %d \t %d \n",nprocs, totaltime, size, load);
      fclose(file);
-     */
 }
 
 void printPlace(int place[][2], int nprocs) {

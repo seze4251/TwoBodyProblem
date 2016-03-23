@@ -55,9 +55,7 @@ int fowardEuler(double * t, double IC []) {
     int i = 1;
     while (1) {
         // If spacecraft is heading home, Increase timestep!
-        if (vSx < 0) {
-        }
-        
+
         // Change Time
         *t = *t + dt;
         
@@ -154,7 +152,7 @@ int rk4(double * t, double IC []) {
     // Globals (constants): mM, mE, mS, rM, rE, G, thetaS, thetaM, clear, xE, yE, vEx, vEy
     
     // Declare time;
-    double dt = 0.5; // Second
+    double dt = 200; // Second
     *t = 0;
     
     // Declare Derivatives:
@@ -170,10 +168,7 @@ int rk4(double * t, double IC []) {
     double k1, k2, k3, k4;
     
     while (1) {
-        // If spacecraft is heading home, Increase timestep!
-        if (vSx < 0) {
-            dt = 3;
-        }
+        // If spacecraft is heading home, Increase timestep
         
         // Change Time
         *t = *t + dt;
@@ -209,54 +204,56 @@ int rk4(double * t, double IC []) {
          i += 1;
          */
         
-        k1 = vSx + dt * aSx;
-        k2 = vSx + dt/2 * k1;
-        k3 = vSx + dt/2  * k2;
-        k4 = vSx + dt * k3;
+        k1 = aSx * xS;
+        k2 = aSx * (xS + dt/2 * vSx);
+        k3 = aSx * (xS + dt/2 * (vSx *dt/2 * k1));
+        k4 = aSx * (xS + dt * (vSx*dt/2*k2) );
         vSx = vSx + dt / 6 * (k1 + 2* k2 + 2* k3 + k4);  // aSx;
         
-        k1 = vSy + dt * aSy;
-        k2 = vSy + dt/2 * k1;
-        k3 = vSy + dt/2  * k2;
-        k4 = vSy + dt * k3;
+        k1 = aSy * yS;
+        k2 = aSy * (yS + dt/2 * vSy);
+        k3 = aSy * (yS + dt/2 * (vSy *dt/2 * k1));
+        k4 = aSy * (yS + dt * (vSy*dt/2*k2) );
         vSy = vSy + dt  / 6 * (k1 + 2* k2 + 2* k3 + k4); //* aSy;
         
-        k1 = vMx + dt * aMx;
-        k2 = vMx + dt/2 * k1;
-        k3 = vMx + dt/2  * k2;
-        k4 = vMx + dt * k3;
+        k1 = aMx * xM;
+        k2 = aMx * (xM + dt/2 * vMx);
+        k3 = aMx * (xM + dt/2 * (vMx *dt/2 * k1));
+        k4 = aMx * (xM + dt * (vMx*dt/2*k2) );
+        
         vMx = vMx + dt  / 6 * (k1 + 2* k2 + 2* k3 + k4); //* aMx;
         
-        k1 = vMy + dt * aMy;
-        k2 = vMy + dt/2 * k1;
-        k3 = vMy + dt/2  * k2;
-        k4 = vMy + dt * k3;
+        
+        k1 = aMy * yM;
+        k2 = aMy * (yM + dt/2 * vMy);
+        k3 = aMy * (yM + dt/2 * (vMy *dt/2 * k1));
+        k4 = aMy * (yM + dt * (vMy*dt/2*k2) );
         vMy = vMy + dt / 6 * (k1 + 2* k2 + 2* k3 + k4);  // * aMy;
         
-        // New Positions with MidPoint
-        
-        k1 = xS + dt * vSx;
-        k2 = xS + dt/2 * k1;
-        k3 = xS + dt/2  * k2;
-        k4 = xS + dt * k3;
+        // New Positions with Rung Kutta
+
+        k1 = vSx;
+        k2 = vSx * dt/2 * (aSx * xS);
+        k3 = vSx * dt/2 * (aSx * (xS + dt/2 * k1));
+        k4 = vSx * dt * (aSx * (xS + dt/2 * k2));
         xS = xS + dt  / 6 * (k1 + 2* k2 + 2* k3 + k4);  // * vSx;
         
-        k1 = yS + dt * vSy;
-        k2 = yS + dt/2 * k1;
-        k3 = yS + dt/2  * k2;
-        k4 = yS + dt * k3;
+        k1 = vSy;
+        k2 = vSy * dt/2 * (aSy * yS);
+        k3 = vSy * dt/2 * (aSy * (yS + dt/2 * k1));
+        k4 = vSy * dt * (aSy * (yS + dt/2 * k2));
         yS = yS + dt  / 6 * (k1 + 2* k2 + 2* k3 + k4);  // * vSy;
         
-        k1 = xM + dt * vMx;
-        k2 = xM + dt/2 * k1;
-        k3 = xM + dt/2  * k2;
-        k4 = xM + dt * k3;
+        k1 = vMx;
+        k2 = vMx * dt/2 * (aMx * xM);
+        k3 = vMx * dt/2 * (aMx * (xM + dt/2 * k1));
+        k4 = vMx * dt * (aMx * (xM + dt/2 * k2));
         xM = xM + dt  / 6 * (k1 + 2* k2 + 2* k3 + k4);  //* vMx;
         
-        k1 = yM + dt * vMy;
-        k2 = yM + dt/2 * k1;
-        k3 = yM + dt/2  * k2;
-        k4 = yM + dt * k3;
+        k1 = vMy;
+        k2 = vMy * dt/2 * (aMy * yM);
+        k3 = vMy * dt/2 * (aMy * (yM + dt/2 * k1));
+        k4 = vMy * dt * (aMy * (yM + dt/2 * k2));
         yM = yM + dt / 6 * (k1 + 2* k2 + 2* k3 + k4); // * vMy;
         
         // Solve for Ending Conditions
@@ -266,7 +263,7 @@ int rk4(double * t, double IC []) {
         
         //   printf("vS = %5.5f vM = %5.5f dES = %5.5f dEM = %5.5f xS = %5.5f \n ", vS, vM, dES, dEM, xS);
         //     printf("yS = %5.5f vSx = %5.5f vSy = %5.5f xM = %5.5f yM = %5.5f  vMx = %5.5f vMy = %5.5f \n", yS, vSx, vSy, xM, yM, vMx, vMy);
-        // printf("dMS = %5.5f\n", dMS);
+         printf("dMS = %5.5f\n", dMS);
         
         if (dMS <= rM + clear) {
             //printf("Exiting Simulation because Spacecraft Crashed with Moon\n");
